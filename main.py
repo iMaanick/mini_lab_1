@@ -9,7 +9,8 @@ from tkinter import *
 from tkinter.filedialog import asksaveasfile
 
 from matplotlib import pyplot as plt
-
+from tkinter.filedialog import askopenfile
+import json
 from matplotlib.backends.backend_tkagg import (FigureCanvasTkAgg,
                                                NavigationToolbar2Tk)
 
@@ -31,11 +32,44 @@ class Entries:
         new_entry.icursor(0)
         new_entry.focus()
         new_entry.pack()
+        self.plot_button()
+        self.entries_list.append(new_entry)
+
+    def plot_button(self):
         plot_button = self.parent_window.get_button_by_name('plot')
         if plot_button:
             plot_button.pack_forget()
         self.parent_window.add_button('plot', 'Plot', 'plot', hot_key='<Return>')
-        self.entries_list.append(new_entry)
+
+    def _delete_entry(self, modal_window, focused_entry):
+        focused_entry.pack_forget()
+        self.entries_list.remove(focused_entry)
+        modal_window.cancel()
+
+    def delete_entry(self):
+        focused_entry = self.parent_window.focus_get()
+        try:
+            entry_string = focused_entry.get()
+        except AttributeError:
+            self.plot_button()
+            return
+        if len(entry_string) > 0:
+            modal_window = ModalWindow(self.parent_window, title='Не пустое поле', labeltext='Вы действительно хотите '
+                                                                                             'удалить это поле?')
+            no = Button(master=modal_window.top, text='Нет', command=modal_window.cancel)
+            modal_window.add_button(no)
+            _callback = partial(self._delete_entry, modal_window, focused_entry)
+            callback = partial(modal_window.do_task, _callback)
+            yes = Button(master=modal_window.top, text='Да', command=callback)
+            modal_window.add_button(yes)
+            self.plot_button()
+        else:
+            focused_entry.pack_forget()
+            try:
+                self.entries_list.remove(focused_entry)
+            except ValueError:
+                return
+            self.plot_button()
 
 
 # class for plotting (класс для построения графиков)
@@ -137,6 +171,17 @@ class Commands:
                     mw.add_button(ok_button)
                     self.__empty_entry_counter = 1
         self.__empty_entry_counter = 0
+        self._plot_graph(list_of_function)
+
+    def add_func(self, *args, **kwargs):
+        self.__forget_canvas()
+        self.__forget_navigation()
+        self.parent_window.entries.add_entry()
+
+    def save_as(self):
+        self._state.save_state()
+        return self
+    def _plot_graph(self, list_of_function):
         figure = self.parent_window.plotter.plot(list_of_function)
         self._state.figure = figure
         self.__forget_canvas()
@@ -147,16 +192,25 @@ class Commands:
         plot_button = self.parent_window.get_button_by_name('plot')
         if plot_button:
             plot_button.pack_forget()
-
-    def add_func(self, *args, **kwargs):
+    def delete_func(self, *args, **kwargs):
         self.__forget_canvas()
         self.__forget_navigation()
-        self.parent_window.entries.add_entry()
+        self.parent_window.entries.delete_entry()
 
-    def save_as(self):
-        self._state.save_state()
-        return self
-
+    def load_as(self):
+        file = askopenfile(defaultextension=".json")
+        if file is None:
+            return
+        data = file.read()
+        dict = json.loads(data)
+        for entry in self.parent_window.entries.entries_list:
+            entry.destroy()
+        self.parent_window.entries.entries_list = []
+        try:
+            list_of_function = dict['list_of_function']
+        except KeyError:
+            return
+        self._plot_graph(list_of_function)
 
 # class for buttons storage (класс для хранения кнопок)
 class Buttons:
@@ -198,6 +252,10 @@ class ModalWindow:
     def cancel(self):
         self.top.destroy()
 
+    def do_task(self, task):
+        task()
+        self.top.destroy()
+
 
 # app class (класс приложения)
 class App(Tk):
@@ -231,6 +289,7 @@ class App(Tk):
 
         file_menu = Menu(menu)
         file_menu.add_command(label="Save as...", command=self.commands.get_command_by_name('save_as'))
+        file_menu.add_command(label="Load as...", command=self.commands.get_command_by_name('load_as'))
         menu.add_cascade(label="File", menu=file_menu)
 
 
@@ -248,13 +307,15 @@ if __name__ == "__main__":
     commands_main.add_command('plot', commands_main.plot)
     commands_main.add_command('add_func', commands_main.add_func)
     commands_main.add_command('save_as', commands_main.save_as)
+    commands_main.add_command('load_as', commands_main.load_as)
+    commands_main.add_command('delete_func', commands_main.delete_func)
     # init app (создаем экземпляр приложения)
     app = App(buttons_main, plotter_main, commands_main, entries_main)
     # init add func button (добавляем кнопку добавления новой функции)
     app.add_button('add_func', 'Добавить функцию', 'add_func', hot_key='<Control-a>')
+    app.add_button('delete_func', 'Удалить функцию', 'delete_func', hot_key='<Control-d>')
     # init first entry (создаем первое поле ввода)
     entries_main.add_entry()
     app.create_menu()
-    # добавил комментарий для коммита
     # application launch (запуск "вечного" цикла приложеня)
     app.mainloop()
